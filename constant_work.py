@@ -4,8 +4,9 @@ import matplotlib.pyplot as plt
 
 total_period_secs = 120
 request_duration_ms = 50
+cpu_count = 24
 
-def steal_time(load):
+def simulate(load):
     class Request:
         def __init__(self, arrival_ms, duration_ms=request_duration_ms):
             self.arrival_ms = arrival_ms
@@ -14,7 +15,7 @@ def steal_time(load):
             self.completion_ms = None
             self.max_load = 0
 
-    total_requests = load * total_period_secs * 1000 / request_duration_ms
+    total_requests = cpu_count * load * total_period_secs * 1000 / request_duration_ms
 
     requests = []
     for r in range(int(total_requests)):
@@ -30,7 +31,8 @@ def steal_time(load):
         while(load > 0):
             first = in_flight[0]
             window_ms = end_ms - now
-            needed_ms = first.remaining_ms * load
+            relative_load = max(load / cpu_count, 1)
+            needed_ms = first.remaining_ms * relative_load
             completed = needed_ms < window_ms
 
             if not completed:
@@ -40,13 +42,14 @@ def steal_time(load):
 
             if completed:
                 first.remaining_ms = 0
-                first.completion_ms = now
+                # fix rounding errors
+                first.completion_ms = max(now, first.arrival_ms + first.duration_ms)
                 in_flight.pop(0)
 
-            work_ms = needed_ms / load
+            work_ms = needed_ms / relative_load
             for r in in_flight:
                 r.remaining_ms -= work_ms
-                r.max_load = max(r.max_load, load)
+                r.max_load = max(r.max_load, relative_load)
 
             if not completed:
                 break
@@ -67,42 +70,60 @@ def steal_time(load):
     steal_time_ms = 0
     tot_duration_ms = 0
     tot_max_load = 0
+
+    total_util_ms = 0
+    total_steal_time_ms = 0
+
+    stable_regime_margin_ms = (total_period_secs * 1000) / 100
+
     for r in requests:
         duration_ms = r.completion_ms - r.arrival_ms
         # print(f"{r.arrival_ms:.3f}-{r.completion_ms:.3f} ({duration_ms:.3f})")
         tot_duration_ms += duration_ms
-        steal_time_ms += duration_ms - r.duration_ms
+        # rounding errors
+        this_steal_time_ms = max(duration_ms - r.duration_ms, 0)
+        steal_time_ms += this_steal_time_ms
         tot_max_load += r.max_load
-    return steal_time_ms, tot_duration_ms / len(requests), tot_max_load / len(requests)
 
+        if r.arrival_ms > stable_regime_margin_ms and r.completion_ms < total_period_secs * 1000 - stable_regime_margin_ms:
+            total_util_ms += r.duration_ms
+            total_steal_time_ms += this_steal_time_ms
+
+    relative_steal_time = total_steal_time_ms / total_util_ms
+    return steal_time_ms, tot_duration_ms / len(requests), tot_max_load / len(requests), relative_steal_time
+
+util = []
 load = []
 st = []
 d = []
 aml = []
-for i in range(0, 101, 5):
-    total_st, duration, avg_max_load = steal_time(i / 100.0)
-    rel_st = total_st / (1000 * total_period_secs)
-    rel_d = duration / request_duration_ms
-    st.append(rel_st)
-    d.append(rel_d)
+for i in range(1, 100, 1):
+    total_st, duration, avg_max_load, rel_st = simulate(i / 100.0)
+    rel_d = duration / request_duration_ms - 1
+    st.append(int(rel_st * 1000) / 1000)
+    d.append(rel_d * 100)
     aml.append(avg_max_load)
-    load.append(i)
-    print(f"load {i}, st {rel_st:.3f}, d {duration:.3f}, aml {avg_max_load:.3f}")
-plt.plot(load, st)
-plt.xlabel('load')
-plt.ylabel('st')
-plt.yscale('log')
+    util.append(i)
+    l = i + rel_st * 100
+    load.append(l)
+    print(f"util {i}, load {l:.3f}, st {rel_st:.3f}, d {duration:.3f}, aml {avg_max_load:.3f}")
+plt.plot(util, st)
+plt.xlabel('util')
+plt.ylabel('relative steal time (steal time / cpu util)')
+plt.show()
+
+plt.plot(util, d)
+plt.xlabel('cpu pool util [%]')
+plt.ylabel('relative latency increase [%]')
 plt.show()
 
 plt.plot(load, d)
-plt.xlabel('load')
-plt.ylabel('duration')
-plt.yscale('log')
+plt.xlabel('cpu pool load [%]')
+plt.ylabel('relative latency increase [%]')
 plt.show()
 
-plt.plot(load, aml)
-plt.xlabel('load')
-plt.ylabel('avg max load')
+plt.plot(util, aml)
+plt.xlabel('util')
+plt.ylabel('avg max rq size per work item')
 plt.yscale('log')
 plt.show()
-
