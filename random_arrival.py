@@ -96,34 +96,35 @@ util = []
 load = []
 st = []
 d = []
-aml = []
+max_rq = []
 for i in range(1, 100, 1):
-    total_st, duration, avg_max_load, rel_st = simulate(i / 100.0)
+    total_st, duration, mrq, rel_st = simulate(i / 100.0)
     rel_d = duration / request_duration_ms - 1
     st.append(int(rel_st * 1000) / 1000)
     d.append(rel_d * 100)
-    aml.append(avg_max_load)
+    max_rq.append(mrq)
     util.append(i)
     l = i + rel_st * 100
     load.append(l)
-    print(f"util {i}, load {l:.3f}, st {rel_st:.3f}, d {duration:.3f}, aml {avg_max_load:.3f}")
+    print(f"util {i}, load {l:.3f}, st {rel_st:.3f}, d {duration:.3f}, max_rq {mrq:.3f}")
 plt.plot(util, st)
 plt.xlabel('util')
 plt.ylabel('relative steal time (steal time / cpu util)')
 plt.show()
 
-plt.plot(util, d)
+fig, ax = plt.subplots()
+# ax.set_ylim(0, 500)
+ax.plot(util, d)
 plt.xlabel('cpu pool util [%]')
-plt.ylabel('relative latency increase [%]')
+plt.ylabel('relative steal time [%]')
 plt.show()
 
 plt.plot(load, d)
 plt.xlabel('cpu pool load [%]')
-plt.ylabel('relative latency increase [%]')
+plt.ylabel('relative steal time [%]')
 plt.show()
 
-plt.plot(util, aml)
-plt.xlabel('util')
-plt.ylabel('avg max rq size per work item')
-plt.yscale('log')
+plt.plot(max_rq, d)
+plt.xlabel('max rq')
+plt.ylabel('relative steal time [%]')
 plt.show()
